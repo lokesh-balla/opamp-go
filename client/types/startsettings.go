@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/open-telemetry/opamp-go/protobufs"
 )
 
@@ -77,4 +78,7 @@ type StartSettings struct {
 	// If nil, the default reporter interval (10s) will be used.
 	// If specified a minimum value of 1s will be enforced.
 	DownloadReporterInterval *time.Duration
+
+	// Optional ExponentialBackOffOpts to pass options to exponential backoff retries
+	ExponentialBackOffOpts []backoff.ExponentialBackOffOpts
 }

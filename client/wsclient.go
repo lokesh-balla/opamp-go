@@ -61,6 +61,9 @@ type wsClient struct {
 	// connection. responseChain should only be referred to by the goroutine that
 	// runs tryConnectOnce and its synchronous callees.
 	responseChain []*http.Response
+
+	// exponentialBackOffOpts is used to pass options for exponential backoff retries
+	exponentialBackOffOpts []backoff.ExponentialBackOffOpts
 }
 
 // NewWebSocket creates a new OpAMP Client that uses WebSocket transport.
@@ -120,6 +123,8 @@ func (c *wsClient) Start(ctx context.Context, settings types.StartSettings) erro
 	c.getHeader = func() http.Header {
 		return headerFunc(baseHeader.Clone())
 	}
+
+	c.exponentialBackOffOpts = settings.ExponentialBackOffOpts
 
 	c.common.StartConnectAndRun(c.runUntilStopped)
 
@@ -297,7 +302,7 @@ func (c *wsClient) tryConnectOnce(ctx context.Context) (retryAfter sharedinterna
 // Continuously try until connected. Will return nil when successfully
 // connected. Will return error if it is cancelled via context.
 func (c *wsClient) ensureConnected(ctx context.Context) error {
-	infiniteBackoff := backoff.NewExponentialBackOff()
+	infiniteBackoff := backoff.NewExponentialBackOff(c.exponentialBackOffOpts...)
 
 	// Make ticker run forever.
 	infiniteBackoff.MaxElapsedTime = 0
