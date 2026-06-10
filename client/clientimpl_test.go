@@ -95,6 +95,28 @@ func eventually(t *testing.T, f func() bool) {
 	assert.Eventually(t, f, 5*time.Second, 10*time.Millisecond)
 }
 
+type mockServerMessageHandler func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent
+
+type mockServerMessageDispatcher struct {
+	handler atomic.Value
+}
+
+func newMockServerMessageDispatcher() *mockServerMessageDispatcher {
+	dispatcher := &mockServerMessageDispatcher{}
+	dispatcher.Set(func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+		return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
+	})
+	return dispatcher
+}
+
+func (d *mockServerMessageDispatcher) Set(handler mockServerMessageHandler) {
+	d.handler.Store(handler)
+}
+
+func (d *mockServerMessageDispatcher) Handle(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+	return d.handler.Load().(mockServerMessageHandler)(msg)
+}
+
 func genNewInstanceUid(t *testing.T) types.InstanceUid {
 	uid, err := uuid.NewV7()
 	require.NoError(t, err)
@@ -2960,11 +2982,11 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 		name         string
 		capabilities protobufs.AgentCapabilities
 		needsServer  bool
-		testFunc     func(t *testing.T, client OpAMPClient, srv *internal.MockServer)
+		testFunc     func(t *testing.T, client OpAMPClient, srv *internal.MockServer, setOnMessage func(mockServerMessageHandler))
 	}{{
 		name:         "no capability returns error",
 		capabilities: coreCapabilities,
-		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, _ func(mockServerMessageHandler)) {
 			err := client.SetConnectionSettingsStatus(&protobufs.ConnectionSettingsStatus{
 				LastConnectionSettingsHash: []byte{1, 2, 3},
 				Status:                     protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_APPLIED,
@@ -2974,14 +2996,14 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 	}, {
 		name:         "nil status returns error",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
-		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, _ func(mockServerMessageHandler)) {
 			err := client.SetConnectionSettingsStatus(nil)
 			require.Error(t, err)
 		},
 	}, {
 		name:         "nil hash returns error",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
-		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, _ func(mockServerMessageHandler)) {
 			err := client.SetConnectionSettingsStatus(&protobufs.ConnectionSettingsStatus{
 				Status: protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_APPLIED,
 			})
@@ -2991,15 +3013,15 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 		name:         "sends status to server",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
 		needsServer:  true,
-		testFunc: func(t *testing.T, client OpAMPClient, srv *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, setOnMessage func(mockServerMessageHandler)) {
 			gotApplied := new(atomic.Bool)
-			srv.OnMessage = func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+			setOnMessage(func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 				if msg.ConnectionSettingsStatus != nil &&
 					msg.ConnectionSettingsStatus.Status == protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_APPLIED {
 					gotApplied.Store(true)
 				}
 				return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
-			}
+			})
 
 			err := client.SetConnectionSettingsStatus(&protobufs.ConnectionSettingsStatus{
 				LastConnectionSettingsHash: []byte{1, 2, 3},
@@ -3012,15 +3034,15 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 		name:         "duplicate status is no-op",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
 		needsServer:  true,
-		testFunc: func(t *testing.T, client OpAMPClient, srv *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, setOnMessage func(mockServerMessageHandler)) {
 			var appliedCount atomic.Int64
-			srv.OnMessage = func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+			setOnMessage(func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 				if msg.ConnectionSettingsStatus != nil &&
 					msg.ConnectionSettingsStatus.Status == protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_APPLIED {
 					appliedCount.Add(1)
 				}
 				return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
-			}
+			})
 
 			status := &protobufs.ConnectionSettingsStatus{
 				LastConnectionSettingsHash: []byte{1, 2, 3},
@@ -3042,15 +3064,15 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 		name:         "sends FAILED status to server",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
 		needsServer:  true,
-		testFunc: func(t *testing.T, client OpAMPClient, srv *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, setOnMessage func(mockServerMessageHandler)) {
 			gotFailed := new(atomic.Bool)
-			srv.OnMessage = func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+			setOnMessage(func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 				if msg.ConnectionSettingsStatus != nil &&
 					msg.ConnectionSettingsStatus.Status == protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_FAILED {
 					gotFailed.Store(true)
 				}
 				return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
-			}
+			})
 
 			err := client.SetConnectionSettingsStatus(&protobufs.ConnectionSettingsStatus{
 				LastConnectionSettingsHash: []byte{1, 2, 3},
@@ -3064,15 +3086,15 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 		name:         "different hash triggers send",
 		capabilities: coreCapabilities | protobufs.AgentCapabilities_AgentCapabilities_ReportsConnectionSettingsStatus,
 		needsServer:  true,
-		testFunc: func(t *testing.T, client OpAMPClient, srv *internal.MockServer) {
+		testFunc: func(t *testing.T, client OpAMPClient, _ *internal.MockServer, setOnMessage func(mockServerMessageHandler)) {
 			var appliedCount atomic.Int64
-			srv.OnMessage = func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+			setOnMessage(func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 				if msg.ConnectionSettingsStatus != nil &&
 					msg.ConnectionSettingsStatus.Status == protobufs.ConnectionSettingsStatuses_ConnectionSettingsStatuses_APPLIED {
 					appliedCount.Add(1)
 				}
 				return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
-			}
+			})
 
 			// First call with hash A.
 			err := client.SetConnectionSettingsStatus(&protobufs.ConnectionSettingsStatus{
@@ -3097,10 +3119,14 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 			testClients(t, func(t *testing.T, client OpAMPClient) {
 				var srv *internal.MockServer
 				var settings types.StartSettings
+				setOnMessage := func(mockServerMessageHandler) {}
 
 				if tc.needsServer {
 					srv = internal.StartMockServer(t)
 					defer srv.Close()
+					messageDispatcher := newMockServerMessageDispatcher()
+					srv.OnMessage = messageDispatcher.Handle
+					setOnMessage = messageDispatcher.Set
 					settings.OpAMPServerURL = "ws://" + srv.Endpoint
 				} else {
 					settings = createNoServerSettings()
@@ -3108,7 +3134,7 @@ func TestSetConnectionSettingsStatus(t *testing.T) {
 				settings.Capabilities = tc.capabilities
 
 				startClient(t, settings, client)
-				tc.testFunc(t, client, srv)
+				tc.testFunc(t, client, srv, setOnMessage)
 
 				err := client.Stop(t.Context())
 				require.NoError(t, err)

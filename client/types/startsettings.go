@@ -18,6 +18,10 @@ type StartSettings struct {
 	// Optional additional HTTP headers to send with all HTTP requests.
 	Header http.Header
 
+	// Optional HTTP client used by the plain HTTP transport for OpAMP requests.
+	// If nil, a default HTTP client will be used. WebSocket transport ignores this field.
+	Client *http.Client
+
 	// Optional function that can be used to modify the HTTP headers
 	// before each HTTP request.
 	// Can modify and return the argument or return the argument without modifying.

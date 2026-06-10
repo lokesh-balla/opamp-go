@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/open-telemetry/opamp-go/client/internal/utils"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opamp-go/internal"
 	"github.com/open-telemetry/opamp-go/protobufs"
@@ -78,12 +77,17 @@ func NewHTTPSender(logger types.Logger) *HTTPSender {
 	h := &HTTPSender{
 		SenderCommon: NewSenderCommon(),
 		logger:       logger,
-		client:       utils.NewHttpClient(),
 	}
 	h.pollingIntervalMs.Store(defaultPollingIntervalMs)
 	// initialize the headers with no additional headers
 	h.SetRequestHeader(nil, nil)
 	return h
+}
+
+// SetHTTPClient sets the HTTP client used to send OpAMP requests.
+// It must be called before Run, SetProxy, or AddTLSConfig.
+func (h *HTTPSender) SetHTTPClient(client *http.Client) {
+	h.client = client
 }
 
 // SetProxy will force each request to use passed proxy and use the passed headers when making a CONNECT request to the proxy.

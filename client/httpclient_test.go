@@ -23,6 +23,51 @@ import (
 	"github.com/open-telemetry/opamp-go/protobufs"
 )
 
+type recordingRoundTripper struct {
+	base     http.RoundTripper
+	requests int64
+}
+
+func (r *recordingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	atomic.AddInt64(&r.requests, 1)
+	return r.base.RoundTrip(req)
+}
+
+func (r *recordingRoundTripper) RequestCount() int64 {
+	return atomic.LoadInt64(&r.requests)
+}
+
+func TestHTTPClientUsesStartSettingsClient(t *testing.T) {
+	srv := internal.StartMockServer(t)
+	defer srv.Close()
+
+	var rcvCounter int64
+	srv.OnMessage = func(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+		require.NotNil(t, msg)
+		atomic.AddInt64(&rcvCounter, 1)
+		return nil
+	}
+
+	transport := &recordingRoundTripper{base: http.DefaultTransport}
+	settings := types.StartSettings{
+		OpAMPServerURL: "http://" + srv.Endpoint,
+		Client:         &http.Client{Transport: transport},
+	}
+	client := NewHTTP(nil)
+	prepareClient(t, &settings, client)
+
+	client.sender.SetPollingInterval(time.Millisecond * 10)
+
+	require.NoError(t, client.Start(context.Background(), settings))
+	defer func() {
+		require.NoError(t, client.Stop(context.Background()))
+	}()
+
+	eventually(t, func() bool {
+		return atomic.LoadInt64(&rcvCounter) >= 1 && transport.RequestCount() >= 1
+	})
+}
+
 func TestHTTPPolling(t *testing.T) {
 	// Start a Server.
 	srv := internal.StartMockServer(t)
