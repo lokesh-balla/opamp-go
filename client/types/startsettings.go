@@ -5,9 +5,21 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/open-telemetry/opamp-go/protobufs"
 )
+
+// BackoffPolicy controls the delay between consecutive connection or request
+// retry attempts. The client calls NextBackOff after each failed attempt to
+// determine how long to wait before the next one.
+//
+// A nil BackoffPolicy causes the client to use a default exponential backoff
+// that retries indefinitely (initial interval 500ms, multiplier 1.5, max
+// interval 60s, no elapsed-time limit).
+type BackoffPolicy interface {
+	// NextBackOff returns the duration to wait before the next retry.
+	// A negative return value causes the client to reuse the previous interval.
+	NextBackOff() time.Duration
+}
 
 // StartSettings defines the parameters for starting the OpAMP Client.
 type StartSettings struct {
@@ -91,6 +103,8 @@ type StartSettings struct {
 	// If specified a minimum value of 1s will be enforced.
 	DownloadReporterInterval *time.Duration
 
-	// Optional ExponentialBackOffOpts to pass options to exponential backoff retries
-	ExponentialBackOffOpts []backoff.ExponentialBackOffOpts
+	// BackoffPolicy controls the delay between consecutive retry attempts when
+	// a connection (WebSocket) or request (HTTP) fails. If nil, a default
+	// exponential backoff is used. See BackoffPolicy for details.
+	BackoffPolicy BackoffPolicy
 }

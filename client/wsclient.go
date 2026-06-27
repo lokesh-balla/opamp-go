@@ -65,8 +65,8 @@ type wsClient struct {
 	// runs tryConnectOnce and its synchronous callees.
 	responseChain []*http.Response
 
-	// exponentialBackOffOpts is used to pass options for exponential backoff retries
-	exponentialBackOffOpts []backoff.ExponentialBackOffOpts
+	// backoffPolicy controls the delay between connection retry attempts.
+	backoffPolicy types.BackoffPolicy
 }
 
 // NewWebSocket creates a new OpAMP Client that uses WebSocket transport.
@@ -129,7 +129,7 @@ func (c *wsClient) Start(ctx context.Context, settings types.StartSettings) erro
 		return headerFunc(baseHeader.Clone())
 	}
 
-	c.exponentialBackOffOpts = settings.ExponentialBackOffOpts
+	c.backoffPolicy = settings.BackoffPolicy
 
 	c.common.StartConnectAndRun(c.runUntilStopped)
 
@@ -310,16 +310,24 @@ func (c *wsClient) tryConnectOnce(ctx context.Context) (retryAfter sharedinterna
 // Continuously try until connected. Will return nil when successfully
 // connected. Will return error if it is cancelled via context.
 func (c *wsClient) ensureConnected(ctx context.Context) error {
-	infiniteBackoff := backoff.NewExponentialBackOff(c.exponentialBackOffOpts...)
-
-	// Make ticker run forever.
-	infiniteBackoff.MaxElapsedTime = 0
+	var bpolicy types.BackoffPolicy
+	if c.backoffPolicy != nil {
+		bpolicy = c.backoffPolicy
+	} else {
+		b := backoff.NewExponentialBackOff()
+		b.MaxElapsedTime = 0
+		bpolicy = b
+	}
 
 	interval := time.Duration(0)
 
 	for {
 		timer := time.NewTimer(interval)
-		interval = infiniteBackoff.NextBackOff()
+		next := bpolicy.NextBackOff()
+		if next < 0 {
+			next = backoff.DefaultMaxInterval
+		}
+		interval = next
 
 		select {
 		case <-timer.C:
