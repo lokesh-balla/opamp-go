@@ -1212,3 +1212,69 @@ func TestWSClientUseHTTPProxy(t *testing.T) {
 	err := client.Stop(context.Background())
 	assert.NoError(t, err)
 }
+
+// TestWSClientBackoffPolicyDuringReconnect verifies that the BackoffPolicy is
+// consulted during reconnection after a dropped connection.
+func TestWSClientBackoffPolicyDuringReconnect(t *testing.T) {
+	policy := &mockBackoffPolicy{interval: 1 * time.Millisecond}
+
+	srv := internal.StartMockServer(t)
+	t.Cleanup(srv.Close)
+
+	var serverConn atomic.Value
+	srv.SetOnWSConnect(func(c *websocket.Conn) {
+		serverConn.Store(c)
+	})
+
+	settings := types.StartSettings{
+		OpAMPServerURL: "ws://" + srv.Endpoint,
+		BackoffPolicy:  policy,
+	}
+	client := NewWebSocket(nil)
+	startClient(t, settings, client)
+
+	// Wait for the initial connection.
+	eventually(t, func() bool { return serverConn.Load() != nil })
+
+	callsAfterConnect := policy.calls.Load()
+
+	// Drop the server-side connection to trigger a client reconnect.
+	serverConn.Load().(*websocket.Conn).Close()
+
+	// The client must call the policy again during its reconnection attempt.
+	eventually(t, func() bool {
+		return policy.calls.Load() > callsAfterConnect
+	})
+
+	err := client.Stop(context.Background())
+	assert.NoError(t, err)
+}
+
+// TestWSClientBackoffPolicyNegativeInterval verifies that a BackoffPolicy
+// returning a negative value does not prevent connection; the client falls back
+// to a default interval and still connects.
+func TestWSClientBackoffPolicyNegativeInterval(t *testing.T) {
+	policy := &mockBackoffPolicy{interval: -1}
+
+	srv := internal.StartMockServer(t)
+	t.Cleanup(srv.Close)
+
+	var connected atomic.Bool
+	srv.SetOnWSConnect(func(c *websocket.Conn) {
+		connected.Store(true)
+	})
+
+	settings := types.StartSettings{
+		OpAMPServerURL: "ws://" + srv.Endpoint,
+		BackoffPolicy:  policy,
+	}
+	client := NewWebSocket(nil)
+	startClient(t, settings, client)
+
+	// Client must connect and the policy must have been called.
+	eventually(t, func() bool { return connected.Load() })
+	assert.GreaterOrEqual(t, policy.calls.Load(), int64(1))
+
+	err := client.Stop(context.Background())
+	assert.NoError(t, err)
+}
