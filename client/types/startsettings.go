@@ -17,7 +17,7 @@ import (
 // interval 60s, no elapsed-time limit).
 type BackoffPolicy interface {
 	// NextBackOff returns the duration to wait before the next retry.
-	// A negative return value causes the client to reuse the previous interval.
+	// A negative return value causes the client to use the defaultMaxInterval interval.
 	NextBackOff() time.Duration
 }
 
