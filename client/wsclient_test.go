@@ -1228,7 +1228,7 @@ func TestWSClientBackoffPolicyDuringReconnect(t *testing.T) {
 
 	settings := types.StartSettings{
 		OpAMPServerURL: "ws://" + srv.Endpoint,
-		BackoffPolicy:  policy,
+		BackoffPolicy:  func() types.BackoffPolicy { return policy },
 	}
 	client := NewWebSocket(nil)
 	startClient(t, settings, client)
@@ -1266,7 +1266,7 @@ func TestWSClientBackoffPolicyNegativeInterval(t *testing.T) {
 
 	settings := types.StartSettings{
 		OpAMPServerURL: "ws://" + srv.Endpoint,
-		BackoffPolicy:  policy,
+		BackoffPolicy:  func() types.BackoffPolicy { return policy },
 	}
 	client := NewWebSocket(nil)
 	startClient(t, settings, client)

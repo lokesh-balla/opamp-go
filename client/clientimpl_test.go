@@ -3244,7 +3244,7 @@ func TestClientCenkaltiBackoffPolicy(t *testing.T) {
 
 		settings := types.StartSettings{
 			OpAMPServerURL: srv.GetHTTPTestServer().URL,
-			BackoffPolicy:  b,
+			BackoffPolicy:  func() types.BackoffPolicy { return b },
 		}
 		startClient(t, settings, client)
 
@@ -3271,7 +3271,7 @@ func TestClientBackoffPolicyIsConsulted(t *testing.T) {
 
 		settings := types.StartSettings{
 			OpAMPServerURL: srv.GetHTTPTestServer().URL,
-			BackoffPolicy:  policy,
+			BackoffPolicy:  func() types.BackoffPolicy { return policy },
 		}
 		startClient(t, settings, client)
 

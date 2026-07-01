@@ -65,8 +65,9 @@ type wsClient struct {
 	// runs tryConnectOnce and its synchronous callees.
 	responseChain []*http.Response
 
-	// backoffPolicy controls the delay between connection retry attempts.
-	backoffPolicy types.BackoffPolicy
+	// backoffPolicy returns a fresh policy controlling the delay between
+	// connection retry attempts for each connect sequence.
+	backoffPolicy types.BackoffPolicyFunc
 }
 
 // NewWebSocket creates a new OpAMP Client that uses WebSocket transport.
@@ -312,7 +313,7 @@ func (c *wsClient) tryConnectOnce(ctx context.Context) (retryAfter sharedinterna
 func (c *wsClient) ensureConnected(ctx context.Context) error {
 	var bpolicy types.BackoffPolicy
 	if c.backoffPolicy != nil {
-		bpolicy = c.backoffPolicy
+		bpolicy = c.backoffPolicy()
 	} else {
 		b := backoff.NewExponentialBackOff()
 		b.MaxElapsedTime = 0

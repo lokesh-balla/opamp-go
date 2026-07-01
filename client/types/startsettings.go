@@ -9,16 +9,17 @@ import (
 )
 
 // BackoffPolicy controls the delay between consecutive connection or request
-// retry attempts. The client calls NextBackOff after each failed attempt to
-// determine how long to wait before the next one.
-//
-// A nil BackoffPolicy causes the client to use a default exponential backoff
-// that retries indefinitely.
+// retry attempts. The client calls NextBackOff to determine how long to wait
+// before the next one.
 type BackoffPolicy interface {
 	// NextBackOff returns the duration to wait before the next retry.
 	// A negative return value causes the client to use the defaultMaxInterval interval.
 	NextBackOff() time.Duration
 }
+
+// BackoffPolicyFunc returns a fresh BackoffPolicy. The client invokes it at
+// the start of each retry sequence.
+type BackoffPolicyFunc func() BackoffPolicy
 
 // StartSettings defines the parameters for starting the OpAMP Client.
 type StartSettings struct {
@@ -102,8 +103,11 @@ type StartSettings struct {
 	// If specified a minimum value of 1s will be enforced.
 	DownloadReporterInterval *time.Duration
 
-	// BackoffPolicy controls the delay between consecutive retry attempts when
-	// a connection (WebSocket) or request (HTTP) fails. If nil, a default
-	// exponential backoff is used. See BackoffPolicy for details.
-	BackoffPolicy BackoffPolicy
+	// Optional BackoffPolicy returns a fresh policy controlling the delay between
+	// consecutive retry attempts when a connection (WebSocket) or request
+	// (HTTP) fails. It is invoked at the start of each retry sequence, so every
+	// sequence begins from the returned policy's initial state. If nil, a
+	// default exponential backoff is used that retries indefinitely.
+	// See BackoffPolicy and BackoffPolicyFunc for details.
+	BackoffPolicy BackoffPolicyFunc
 }

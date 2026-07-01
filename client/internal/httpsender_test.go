@@ -935,7 +935,7 @@ func TestHTTPSenderUsesBackoffPolicy(t *testing.T) {
 	})
 
 	sender := setupTestSender(t, "http://"+srv.Endpoint)
-	sender.SetBackoffPolicy(policy)
+	sender.SetBackoffPolicy(func() types.BackoffPolicy { return policy })
 	sender.callbacks.SetDefaults()
 
 	resp, err := sender.sendRequestWithRetries(context.Background())
@@ -960,7 +960,7 @@ func TestHTTPSenderBackoffPolicyNegativeInterval(t *testing.T) {
 	})
 
 	sender := setupTestSender(t, "http://"+srv.Endpoint)
-	sender.SetBackoffPolicy(policy)
+	sender.SetBackoffPolicy(func() types.BackoffPolicy { return policy })
 	sender.callbacks.SetDefaults()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
@@ -998,7 +998,7 @@ func TestHTTPSenderCenkaltiBackoffWithCustomValues(t *testing.T) {
 	})
 
 	sender := setupTestSender(t, "http://"+srv.Endpoint)
-	sender.SetBackoffPolicy(b)
+	sender.SetBackoffPolicy(func() types.BackoffPolicy { return b })
 	sender.callbacks.SetDefaults()
 
 	start := time.Now()

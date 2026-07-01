@@ -71,8 +71,9 @@ type HTTPSender struct {
 	// Processor to handle received messages.
 	receiveProcessor receivedProcessor
 
-	// backoffPolicy controls the delay between request retry attempts.
-	backoffPolicy types.BackoffPolicy
+	// backoffPolicy returns a fresh policy controlling the delay between
+	// request retry attempts for each request sequence.
+	backoffPolicy types.BackoffPolicyFunc
 }
 
 // NewHTTPSender creates a new Sender that uses HTTP to send messages
@@ -238,7 +239,7 @@ func (h *HTTPSender) sendRequestWithRetries(ctx context.Context) (*http.Response
 	// Repeatedly try requests with a backoff strategy.
 	var bpolicy types.BackoffPolicy
 	if h.backoffPolicy != nil {
-		bpolicy = h.backoffPolicy
+		bpolicy = h.backoffPolicy()
 	} else {
 		b := backoff.NewExponentialBackOff()
 		b.MaxElapsedTime = 0
@@ -472,8 +473,9 @@ func (h *HTTPSender) EnableCompression() {
 	h.compressionEnabled = true
 }
 
-// SetBackoffPolicy sets the backoff policy used when retrying failed requests.
-func (h *HTTPSender) SetBackoffPolicy(p types.BackoffPolicy) {
+// SetBackoffPolicy sets the factory that produces a fresh backoff policy for
+// each request retry sequence.
+func (h *HTTPSender) SetBackoffPolicy(p types.BackoffPolicyFunc) {
 	h.backoffPolicy = p
 }
 
