@@ -13,8 +13,7 @@ import (
 // determine how long to wait before the next one.
 //
 // A nil BackoffPolicy causes the client to use a default exponential backoff
-// that retries indefinitely (initial interval 500ms, multiplier 1.5, max
-// interval 60s, no elapsed-time limit).
+// that retries indefinitely.
 type BackoffPolicy interface {
 	// NextBackOff returns the duration to wait before the next retry.
 	// A negative return value causes the client to use the defaultMaxInterval interval.
