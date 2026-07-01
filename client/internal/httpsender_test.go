@@ -1012,6 +1012,65 @@ func TestHTTPSenderCenkaltiBackoffWithCustomValues(t *testing.T) {
 	assert.GreaterOrEqual(t, elapsed, initialInterval)
 }
 
+// TestHTTPSenderBackoffPolicyFuncFreshPerSequence verifies that the
+// BackoffPolicyFunc is invoked once per request sequence, so each sequence gets
+// a fresh policy instance rather than reusing an already advanced one.
+func TestHTTPSenderBackoffPolicyFuncFreshPerSequence(t *testing.T) {
+	var mu sync.Mutex
+	var policies []*mockBackoffPolicy
+	factory := func() types.BackoffPolicy {
+		mu.Lock()
+		defer mu.Unlock()
+		p := &mockBackoffPolicy{interval: 0}
+		policies = append(policies, p)
+		return p
+	}
+
+	var requestCount atomic.Int64
+	srv := StartMockServer(t)
+	t.Cleanup(srv.Close)
+	srv.SetOnRequest(func(w http.ResponseWriter, r *http.Request) {
+		// Fail the first attempt of each sequence to force one retry, then succeed.
+		if requestCount.Add(1)%2 == 1 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	sender := setupTestSender(t, "http://"+srv.Endpoint)
+	sender.SetBackoffPolicy(factory)
+	sender.callbacks.SetDefaults()
+
+	// Run two independent request sequences. prepareRequest consumes the pending
+	// message, so queue a fresh one before each sequence.
+	for range 2 {
+		sender.NextMessage().Update(func(msg *protobufs.AgentToServer) {
+			msg.AgentDescription = &protobufs.AgentDescription{
+				IdentifyingAttributes: []*protobufs.KeyValue{{
+					Key: "service.name",
+					Value: &protobufs.AnyValue{
+						Value: &protobufs.AnyValue_StringValue{StringValue: "test-service"},
+					},
+				}},
+			}
+		})
+		resp, err := sender.sendRequestWithRetries(context.Background())
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	// The func must have been called once per sequence.
+	require.Len(t, policies, 2, "backoffFunc must be invoked once per request sequence")
+	// Each sequence must use a distinct, freshly created policy instance.
+	assert.NotSame(t, policies[0], policies[1], "each sequence must use a distinct policy instance")
+	// Each fresh policy must have been consulted during its own sequence.
+	assert.GreaterOrEqual(t, policies[0].calls.Load(), int64(1))
+	assert.GreaterOrEqual(t, policies[1].calls.Load(), int64(1))
+}
+
 func TestHTTPSenderOpAMPInstanceUIDHeader(t *testing.T) {
 	// Create instance UID
 	uidBytes := []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}

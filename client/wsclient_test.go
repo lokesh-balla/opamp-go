@@ -1250,6 +1250,70 @@ func TestWSClientBackoffPolicyDuringReconnect(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+// TestWSClientBackoffPolicyFuncFreshPerConnect verifies that the
+// BackoffPolicyFunc is invoked again for each connect sequence, so a reconnect
+// obtains a fresh policy instance rather than reusing the already advanced one
+// from the previous connect.
+func TestWSClientBackoffPolicyFuncFreshPerConnect(t *testing.T) {
+	var mu sync.Mutex
+	var policies []*mockBackoffPolicy
+	factory := func() types.BackoffPolicy {
+		mu.Lock()
+		defer mu.Unlock()
+		p := &mockBackoffPolicy{interval: 1 * time.Millisecond}
+		policies = append(policies, p)
+		return p
+	}
+
+	srv := internal.StartMockServer(t)
+	t.Cleanup(srv.Close)
+
+	var serverConn atomic.Value
+	srv.SetOnWSConnect(func(c *websocket.Conn) {
+		serverConn.Store(c)
+	})
+
+	settings := types.StartSettings{
+		OpAMPServerURL: "ws://" + srv.Endpoint,
+		BackoffPolicy:  factory,
+	}
+	client := NewWebSocket(nil)
+	startClient(t, settings, client)
+
+	// Wait for the initial connection: the func must have produced one policy.
+	eventually(t, func() bool { return serverConn.Load() != nil })
+
+	mu.Lock()
+	firstCount := len(policies)
+	mu.Unlock()
+	require.GreaterOrEqual(t, firstCount, 1, "func must be invoked for the initial connect")
+
+	// Drop the server-side connection to trigger a client reconnect.
+	serverConn.Load().(*websocket.Conn).Close()
+
+	// The reconnect must invoke the func again, producing a new policy.
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(policies) > firstCount
+	})
+
+	err := client.Stop(context.Background())
+	assert.NoError(t, err)
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Every produced policy must be a distinct instance (fresh state per connect).
+	seen := make(map[*mockBackoffPolicy]struct{}, len(policies))
+	for _, p := range policies {
+		_, dup := seen[p]
+		assert.False(t, dup, "factory returned the same policy instance more than once")
+		seen[p] = struct{}{}
+		// Each fresh policy must have been consulted by its own connect sequence.
+		assert.GreaterOrEqual(t, p.calls.Load(), int64(1))
+	}
+}
+
 // TestWSClientBackoffPolicyNegativeInterval verifies that a BackoffPolicy
 // returning a negative value does not prevent connection; the client falls back
 // to a default interval and still connects.
