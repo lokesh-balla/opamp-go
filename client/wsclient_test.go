@@ -1315,8 +1315,8 @@ func TestWSClientBackoffPolicyFuncFreshPerConnect(t *testing.T) {
 }
 
 // TestWSClientBackoffPolicyNegativeInterval verifies that a BackoffPolicy
-// returning a negative value does not prevent connection; the client falls back
-// to a default interval and still connects.
+// returning a negative value prevents connection; the client errors out instead
+// of retrying.
 func TestWSClientBackoffPolicyNegativeInterval(t *testing.T) {
 	policy := &mockBackoffPolicy{interval: -1}
 
@@ -1335,9 +1335,14 @@ func TestWSClientBackoffPolicyNegativeInterval(t *testing.T) {
 	client := NewWebSocket(nil)
 	startClient(t, settings, client)
 
-	// Client must connect and the policy must have been called.
-	eventually(t, func() bool { return connected.Load() })
+	// The negative interval must surface as an internal error and the client
+	// must never connect.
+	eventually(t, func() bool { return client.lastInternalErr.Load() != nil })
+	assert.False(t, connected.Load())
 	assert.GreaterOrEqual(t, policy.calls.Load(), int64(1))
+	if errPtr := client.lastInternalErr.Load(); assert.NotNil(t, errPtr) {
+		assert.EqualError(t, *errPtr, "invalid backoff policy time")
+	}
 
 	err := client.Stop(context.Background())
 	assert.NoError(t, err)

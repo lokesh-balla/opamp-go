@@ -252,7 +252,7 @@ func (h *HTTPSender) sendRequestWithRetries(ctx context.Context) (*http.Response
 		timer := time.NewTimer(interval)
 		next := bpolicy.NextBackOff()
 		if next < 0 {
-			next = backoff.DefaultMaxInterval
+			return nil, errors.New("invalid backoff policy time")
 		}
 		interval = next
 

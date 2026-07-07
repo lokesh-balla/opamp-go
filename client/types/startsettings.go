@@ -13,7 +13,6 @@ import (
 // before the next one.
 type BackoffPolicy interface {
 	// NextBackOff returns the duration to wait before the next retry.
-	// A negative return value causes the client to use the defaultMaxInterval interval.
 	NextBackOff() time.Duration
 }
 

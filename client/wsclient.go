@@ -326,7 +326,9 @@ func (c *wsClient) ensureConnected(ctx context.Context) error {
 		timer := time.NewTimer(interval)
 		next := bpolicy.NextBackOff()
 		if next < 0 {
-			next = backoff.DefaultMaxInterval
+			err := errors.New("invalid backoff policy time")
+			c.lastInternalErr.Store(&err)
+			return err
 		}
 		interval = next
 

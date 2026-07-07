@@ -946,16 +946,16 @@ func TestHTTPSenderUsesBackoffPolicy(t *testing.T) {
 }
 
 // TestHTTPSenderBackoffPolicyNegativeInterval verifies that a BackoffPolicy
-// returning a negative value (the backoff.Stop sentinel) does not terminate the
-// retry loop; the client falls back to a default interval and only stops when
-// the context is cancelled.
+// returning a negative value terminates the retry loop with an error instead of
+// retrying.
 func TestHTTPSenderBackoffPolicyNegativeInterval(t *testing.T) {
 	policy := &mockBackoffPolicy{interval: -1}
 
 	srv := StartMockServer(t)
 	t.Cleanup(srv.Close)
 	srv.SetOnRequest(func(w http.ResponseWriter, r *http.Request) {
-		// Always return 503 so the loop keeps retrying.
+		// Always return 503 so the loop would keep retrying if not for the
+		// negative backoff.
 		w.WriteHeader(http.StatusServiceUnavailable)
 	})
 
@@ -963,14 +963,12 @@ func TestHTTPSenderBackoffPolicyNegativeInterval(t *testing.T) {
 	sender.SetBackoffPolicy(func() types.BackoffPolicy { return policy })
 	sender.callbacks.SetDefaults()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-
-	_, err := sender.sendRequestWithRetries(ctx)
-	// The loop must exit due to context cancellation, not a premature stop caused
-	// by the negative policy return value.
-	assert.ErrorIs(t, err, context.DeadlineExceeded)
-	assert.GreaterOrEqual(t, policy.calls.Load(), int64(1))
+	_, err := sender.sendRequestWithRetries(context.Background())
+	// The loop must exit immediately with an error because the policy returned a
+	// negative interval.
+	require.Error(t, err)
+	assert.EqualError(t, err, "invalid backoff policy time")
+	assert.Equal(t, int64(1), policy.calls.Load())
 }
 
 // TestHTTPSenderCenkaltiBackoffWithCustomValues verifies that a cenkalti/backoff
