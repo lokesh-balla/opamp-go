@@ -2,11 +2,11 @@ package uisrv
 
 import (
 	"context"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
 	"path"
-	"text/template"
 	"time"
 
 	"github.com/google/uuid"
